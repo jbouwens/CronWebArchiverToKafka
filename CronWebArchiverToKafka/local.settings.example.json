@@ -1,0 +1,15 @@
+{
+  "FlareSolverrUrl": "http://localhost:8191",
+  "UrlsToScrape": [
+    {
+      "Url": "https://api1.example.com/rates",
+      "ConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=your-policy;SharedAccessKey=your-key;EntityPath=eventhub1",
+      "CronExpression": "*/5 * * * *"
+    },
+    {
+      "Url": "https://api2.example.com/prices",
+      "ConnectionString": "Endpoint=sb://your-namespace.servicebus.windows.net/;SharedAccessKeyName=your-policy;SharedAccessKey=your-key;EntityPath=eventhub2",
+      "CronExpression": "0 */1 * * *"
+    }
+  ]
+}
