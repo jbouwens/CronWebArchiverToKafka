@@ -190,7 +190,13 @@ public class WebScraper(ILogger logger, string flareSolverrUrl)
             SaslMechanism = SaslMechanism.Plain,
             SaslUsername = config.SaslUsername,
             SaslPassword = config.SaslPassword,
-            SslEndpointIdentificationAlgorithm = SslEndpointIdentificationAlgorithm.Https
+            SslEndpointIdentificationAlgorithm = SslEndpointIdentificationAlgorithm.Https,
+            EnableIdempotence = true,
+            MessageSendMaxRetries = 3,
+            RetryBackoffMs = 1000,
+            CompressionType = CompressionType.None,
+            BatchSize = 16384,
+            LingerMs = 0
         };
 
         using var producer = new ProducerBuilder<string, byte[]>(producerConfig).Build();
