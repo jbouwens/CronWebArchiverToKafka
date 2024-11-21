@@ -207,58 +207,77 @@ public class WebScraper(ILogger logger, string flareSolverrUrl)
             startIndex = content.IndexOf(">", startIndex) + 1;
             var endIndex = content.IndexOf("</pre>", startIndex);
             content = content.Substring(startIndex, endIndex - startIndex);
-            contentType = "application/json";
         }
 
-        byte[] messageBody;
-        if (contentType.Contains("json"))
+        try
         {
-            try
+            object parsedData;
+            if (contentType.Contains("json"))
             {
                 using var doc = JsonDocument.Parse(content);
-                messageBody = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(doc.RootElement, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                }));
+                parsedData = doc.RootElement.Clone();
             }
-            catch (JsonException)
+            else
             {
-                logger.LogWarning("Content claimed to be JSON but failed to parse. Treating as plain text.");
-                messageBody = Encoding.UTF8.GetBytes(content);
+                parsedData = content;
             }
-        }
-        else
-        {
-            messageBody = Encoding.UTF8.GetBytes(content);
-        }
 
-        var headers = new Headers
+            var messageStructure = new
+            {
+                metadata = new
+                {
+                    sourceUrl = item.Url,
+                    scrapedAt = DateTime.UtcNow,
+                    contentType = contentType,
+                    success = true,
+                    version = "1.0"
+                },
+                data = parsedData
+            };
+
+            var messageBody = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(messageStructure, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            }));
+
+            var headers = new Headers
         {
-            { "content-type", Encoding.UTF8.GetBytes(contentType) },
             { "source-url", Encoding.UTF8.GetBytes(item.Url) },
-            { "scraped-at", Encoding.UTF8.GetBytes(DateTime.UtcNow.ToString("O")) }
+            { "scraped-at", Encoding.UTF8.GetBytes(DateTime.UtcNow.ToString("O")) },
+            { "version", "1.0"u8.ToArray() }
         };
 
-        var message = new Message<string, byte[]>
+            var message = new Message<string, byte[]>
+            {
+                Key = item.Url,
+                Value = messageBody,
+                Headers = headers
+            };
+
+            var parts = config.SaslPassword.Split(';')
+                .Select(part => part.Split(new[] { '=' }, 2))
+                .Where(part => part.Length == 2)
+                .ToDictionary(part => part[0], part => part[1]);
+
+            if (!parts.TryGetValue("EntityPath", out var topicName))
+                throw new ArgumentException("EntityPath not found in connection string");
+
+            await producer.ProduceAsync(topicName, message);
+            logger.LogInformation("Successfully sent {ContentType} content from '{Url}' to event hub '{EventHubName}'",
+                contentType, item.Url, topicName);
+
+            producer.Flush(TimeSpan.FromSeconds(10));
+        }
+        catch (JsonException jex)
         {
-            Key = item.Url,
-            Value = messageBody,
-            Headers = headers
-        };
-
-        var parts = config.SaslPassword.Split(';')
-            .Select(part => part.Split(new[] { '=' }, 2))
-            .Where(part => part.Length == 2)
-            .ToDictionary(part => part[0], part => part[1]);
-
-        if (!parts.TryGetValue("EntityPath", out var topicName))
-            throw new ArgumentException("EntityPath not found in connection string");
-
-        await producer.ProduceAsync(topicName, message);
-        logger.LogInformation("Successfully sent {ContentType} content from '{Url}' to event hub '{EventHubName}'",
-            contentType, item.Url, topicName);
-
-        producer.Flush(TimeSpan.FromSeconds(10));
+            logger.LogError(jex, "JSON processing error for '{Url}'", item.Url);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Error sending to Event Hub for '{Url}'", item.Url);
+            throw;
+        }
     }
 
     public async Task CleanupAsync()
